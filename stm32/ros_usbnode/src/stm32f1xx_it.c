@@ -76,7 +76,7 @@ extern DMA_HandleTypeDef hdma_uart4_tx;
 extern DMA_HandleTypeDef hdma_uart4_rx;
 DMA_HandleTypeDef hdma_adc;
 
-extern ADC_HandleTypeDef ADC2_Handle;
+extern ADC_HandleTypeDef ADC_Charging_Handle;
 
 /* USER CODE BEGIN EV */
 
@@ -225,7 +225,7 @@ void SysTick_Handler(void)
   */
   void ADC1_2_IRQHandler(void)
   {
-    HAL_ADC_IRQHandler(&ADC2_Handle);
+    HAL_ADC_IRQHandler(&ADC_Charging_Handle);
   }
 
  
