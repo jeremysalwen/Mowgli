@@ -16,8 +16,7 @@
 #include <string.h>
 #include <stdbool.h>
 
-#include "stm32f1xx_hal.h"
-#include "stm32f1xx_hal_uart.h"
+#include "stm32f_board_hal.h"
 
 #include "main.h"
 #include "board.h"
