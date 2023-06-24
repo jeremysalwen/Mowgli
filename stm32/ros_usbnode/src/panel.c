@@ -86,7 +86,7 @@ void PANEL_Init(void)
 
     // RX
     GPIO_InitStruct.Pin = PANEL_USART_RX_PIN;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_INPUT;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
     HAL_GPIO_Init(PANEL_USART_RX_PORT, &GPIO_InitStruct);
@@ -111,8 +111,14 @@ void PANEL_Init(void)
 
     
     /* UART1 DMA Init */
-    /* UART1_RX Init */    
+    /* UART1_RX Init */
+#if BOARD_YARDFORCE500_VARIANT_ORIG
     hdma_uart1_rx.Instance = DMA1_Channel5;
+#elif BOARD_YARDFORCE500_VARIANT_B
+	hdma_uart1_rx.Instance = DMA1_Stream0;
+	hdma_uart1_rx.Init.Channel = DMA_CHANNEL_3;
+	hdma_uart1_rx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+#endif
     hdma_uart1_rx.Init.Direction = DMA_PERIPH_TO_MEMORY;
     hdma_uart1_rx.Init.PeriphInc = DMA_PINC_DISABLE;
     hdma_uart1_rx.Init.MemInc = DMA_MINC_ENABLE;
@@ -129,7 +135,13 @@ void PANEL_Init(void)
     
     /* UART4 DMA Init */
     /* UART4_TX Init */
+#if BOARD_YARDFORCE500_VARIANT_ORIG
     hdma_uart1_tx.Instance = DMA1_Channel4;
+#elif BOARD_YARDFORCE500_VARIANT_B
+	hdma_uart1_tx.Instance = DMA1_Stream1;
+	hdma_uart1_tx.Init.Channel = DMA_CHANNEL_3;
+	hdma_uart1_tx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+#endif
     hdma_uart1_tx.Init.Direction = DMA_MEMORY_TO_PERIPH;
     hdma_uart1_tx.Init.PeriphInc = DMA_PINC_DISABLE;
     hdma_uart1_tx.Init.MemInc = DMA_MINC_ENABLE;
