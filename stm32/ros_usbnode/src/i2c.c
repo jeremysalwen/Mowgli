@@ -19,7 +19,7 @@
 #include "board.h"
 #include "main.h"
 #include "imu/imu.h"
-#include "stm32f1xx_hal.h"
+#include "stm32f_board_hal.h"
 #include "i2c_lis3dh.h"
 
 I2C_HandleTypeDef I2C_Handle;
