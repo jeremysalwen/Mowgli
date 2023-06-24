@@ -52,6 +52,8 @@ extern "C"
 
 #define OPTION_ULTRASONIC 0
 #define OPTION_BUMPER 0
+
+#define BOARD_HAS_MASTER_USART 1
 #elif BOARD_YARDFORCE500_VARIANT_B
 /////////////////////
 // Yardforce 500 B //
@@ -63,7 +65,7 @@ extern "C"
 #define VALID_BOARD_DEFINED 1
 #define PANEL_TYPE PANEL_TYPE_YARDFORCE_500_CLASSIC
 #define BLADEMOTOR_LENGTH_RECEIVED_MSG 16
-#define DEBUG_TYPE DEBUG_TYPE_UART
+#define DEBUG_TYPE DEBUG_TYPE_SWO
 
 #define MAX_MPS 0.5		  // Allow maximum speed of 1.0 m/s
 #define PWM_PER_MPS 300.0 // PWM value of 300 means 1 m/s bot speed so we divide by 4 to have correct robot speed but still progressive speed
@@ -85,6 +87,8 @@ extern "C"
 #define PWM_PER_MPS 300.0 // PWM value of 300 means 1 m/s bot speed so we divide by 4 to have correct robot speed but still progressive speed
 #define TICKS_PER_M 300.0 // Motor Encoder ticks per meter
 #define WHEEL_BASE 0.285   // The distance between the center of the wheels in meters
+
+#define BOARD_HAS_MASTER_USART 0
 #endif
 
 //#define I_DONT_NEED_MY_FINGERS              1      // disables EmergencyController() (no wheel lift, or tilt sensing and stopping the blade anymore)
@@ -206,6 +210,7 @@ extern "C"
 #define HALLSTOP_PORT GPIOD
 #define HALLSTOP_GPIO_CLK_ENABLE() __HAL_RCC_GPIOD_CLK_ENABLE()
 
+#if BOARD_HAS_MASTER_USART
     /* either J6 or J18 can be the master USART port */
 #ifdef MASTER_J6
 /* USART1 (J6 Pin 1 (TX) Pin 2 (RX)) */
@@ -228,6 +233,7 @@ extern "C"
 #define MASTER_USART_GPIO_CLK_ENABLE() __HAL_RCC_GPIOC_CLK_ENABLE()
 #define MASTER_USART_USART_CLK_ENABLE() __HAL_RCC_UART4_CLK_ENABLE()
 #define MASTER_USART_IRQ UART4_IRQn
+#endif
 #endif
 
 #ifdef DRIVEMOTORS_USART_ENABLED
