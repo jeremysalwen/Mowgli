@@ -69,7 +69,11 @@ void perimeter_SetCoil(perimeter_CoilNumber_e idx);
 /******************************************************************************
 *  Public Functions
 *******************************************************************************/
+// TODO: We can't use ADC1 here for the Yardforce 500B, since it is used for charging already!
 void Perimeter_vInit(void){
+#if BOARD_YARDFORCE500_VARIANT_B
+	return; // TODO: How to handle?
+#endif
     
  ADC_ChannelConfTypeDef sConfig = {0};
     
