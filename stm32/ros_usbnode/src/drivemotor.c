@@ -15,8 +15,8 @@
  *******************************************************************************/
 #include <string.h>
 #include <stdlib.h>
-#include "stm32f1xx_hal.h"
-#include "stm32f1xx_hal_uart.h"
+
+#include "stm32f_board_hal.h"
 
 #include "main.h"
 #include "ros/ros_custom/cpp_main.h"

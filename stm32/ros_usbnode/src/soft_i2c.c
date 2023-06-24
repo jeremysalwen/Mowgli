@@ -14,7 +14,7 @@
   ******************************************************************************
   */
 
-#include "stm32f1xx_hal.h"
+#include "stm32f_board_hal.h"
 #include "soft_i2c.h"
 #include "board.h"
 
