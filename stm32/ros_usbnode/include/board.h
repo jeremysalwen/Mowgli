@@ -35,6 +35,11 @@ extern "C"
 #define PANEL_TYPE_YARDFORCE_900_ECO 3
 
 #if BOARD_YARDFORCE500_VARIANT_ORIG
+///////////////////////////
+// Yardforce 500 CLASSIC //
+///////////////////////////
+#define BLADEMOTOR_USART_INSTANCE USART3
+
 #define VALID_BOARD_DEFINED 1
 #define PANEL_TYPE PANEL_TYPE_YARDFORCE_500_CLASSIC
 #define BLADEMOTOR_LENGTH_RECEIVED_MSG 16
@@ -48,7 +53,13 @@ extern "C"
 #define OPTION_ULTRASONIC 0
 #define OPTION_BUMPER 0
 #elif BOARD_YARDFORCE500_VARIANT_B
+/////////////////////
+// Yardforce 500 B //
+/////////////////////
+
 // TODO: Are those options valid?
+#define BLADEMOTOR_USART_INSTANCE USART6
+
 #define VALID_BOARD_DEFINED 1
 #define PANEL_TYPE PANEL_TYPE_YARDFORCE_500_CLASSIC
 #define BLADEMOTOR_LENGTH_RECEIVED_MSG 16
@@ -238,8 +249,6 @@ extern "C"
 
 #ifdef BLADEMOTOR_USART_ENABLED
 /* blade motor PAC 5223 (USART3) */
-#define BLADEMOTOR_USART_INSTANCE USART3
-
 #define BLADEMOTOR_USART_RX_PIN GPIO_PIN_11
 #define BLADEMOTOR_USART_RX_PORT GPIOB
 
