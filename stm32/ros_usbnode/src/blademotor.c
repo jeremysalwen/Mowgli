@@ -141,11 +141,11 @@ void BLADEMOTOR_Init(void)
 #if BOARD_YARDFORCE500_VARIANT_ORIG
 	hdma_uart_blade_rx.Instance = DMA1_Channel3;
 #elif BOARD_YARDFORCE500_VARIANT_B
-	hdma_uart_blade_tx.Instance = DMA2_Stream1;
-	hdma_uart_blade_tx.Init.Channel = DMA_CHANNEL_5;
-	hdma_uart_blade_tx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+	hdma_uart_blade_rx.Instance = DMA2_Stream1;
+	hdma_uart_blade_rx.Init.Channel = DMA_CHANNEL_5;
+	hdma_uart_blade_rx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
 #endif
-	hdma_uart_blade_tx.Init.Direction = DMA_PERIPH_TO_MEMORY;
+	hdma_uart_blade_rx.Init.Direction = DMA_PERIPH_TO_MEMORY;
 	hdma_uart_blade_rx.Init.PeriphInc = DMA_PINC_DISABLE;
 	hdma_uart_blade_rx.Init.MemInc = DMA_MINC_ENABLE;
 	hdma_uart_blade_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;

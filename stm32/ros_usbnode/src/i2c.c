@@ -35,6 +35,9 @@ void I2C_Init(void)
    GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7;
    GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+#if BOARD_YARDFORCE500_VARIANT_B
+   GPIO_InitStruct.Alternate = GPIO_AF4_I2C1;
+#endif
    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
    /* Peripheral clock enable */

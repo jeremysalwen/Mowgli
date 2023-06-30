@@ -148,6 +148,9 @@ void DRIVEMOTOR_Init(void)
     GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
+#if BOARD_YARDFORCE500_VARIANT_B
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
+#endif
     HAL_GPIO_Init(DRIVEMOTORS_USART_RX_PORT, &GPIO_InitStruct);
 
     // TX
@@ -155,6 +158,9 @@ void DRIVEMOTOR_Init(void)
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     // GPIO_InitStruct.Pull = GPIO_PULLUP;
     GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
+#if BOARD_YARDFORCE500_VARIANT_B
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
+#endif
     HAL_GPIO_Init(DRIVEMOTORS_USART_TX_PORT, &GPIO_InitStruct);
 
     // Alternate Pin Set ?
