@@ -100,7 +100,6 @@ int main(void)
   // TODO: Check if some equivalent is needed for the STM32f4
   __HAL_RCC_AFIO_CLK_ENABLE();
 #endif
-  __HAL_RCC_PWR_CLK_ENABLE();
 
   MX_DMA_Init();
 
@@ -507,6 +506,10 @@ void SystemClock_Config(void)
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
+#if BOARD_YARDFORCE500_VARIANT_B
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE2);
+#endif
   /** Initializes the RCC Oscillators according to the specified parameters
    * in the RCC_OscInitTypeDef structure.
    */
@@ -537,6 +540,21 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 
+#if BOARD_YARDFORCE500_VARIANT_B
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  #elif
   /** Initializes the CPU, AHB and APB buses clocks
    */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
@@ -549,7 +567,7 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-
+#endif
 #if BOARD_YARDFORCE500_VARIANT_ORIG
   // TODO: Is something like this needed for variant B?
   RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
@@ -633,6 +651,9 @@ void TIM3_Init(void)
   GPIO_InitStruct.Pin = GPIO_PIN_1;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+#if BOARD_YARDFORCE500_VARIANT_B
+  GPIO_InitStruct.Alternate = GPIO_AF2_TIM3;
+#endif
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 }
 
@@ -699,6 +720,9 @@ void TIM4_Init(void)
   GPIO_InitStruct.Pin = GPIO_PIN_14;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+#if BOARD_YARDFORCE500_VARIANT_B
+  GPIO_InitStruct.Alternate = GPIO_AF2_TIM4;
+#endif
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 }
 
@@ -1023,7 +1047,9 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     ULTRASONICSENSOR_ReceiveIT();
 #endif
   }
-  else if (huart->Instance == BLADEMOTOR_USART_INSTANCE)
+  else 
+#endif
+  if (huart->Instance == BLADEMOTOR_USART_INSTANCE)
   {
     BLADEMOTOR_ReceiveIT();
   }
@@ -1031,5 +1057,4 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
   {
     DRIVEMOTOR_ReceiveIT();
   }
-#endif
 }
