@@ -89,12 +89,18 @@ void PANEL_Init(void)
     GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
+#if BOARD_YARDFORCE500_VARIANT_B
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
+#endif
     HAL_GPIO_Init(PANEL_USART_RX_PORT, &GPIO_InitStruct);
 
     // TX
     GPIO_InitStruct.Pin = PANEL_USART_TX_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
+#if BOARD_YARDFORCE500_VARIANT_B
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
+#endif
     HAL_GPIO_Init(PANEL_USART_TX_PORT, &GPIO_InitStruct);
 
     PANEL_USART_USART_CLK_ENABLE();

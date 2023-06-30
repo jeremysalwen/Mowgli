@@ -138,6 +138,9 @@ uint8_t  chargecontrol_is_charging  = 0;
   GPIO_InitStruct.Pin = CHARGE_LOWSIDE_PIN|CHARGE_HIGHSIDE_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+#if BOARD_YARDFORCE500_VARIANT_B
+  GPIO_InitStruct.Alternate = GPIO_AF1_TIM1;
+#endif
   HAL_GPIO_Init(CHARGE_GPIO_PORT, &GPIO_InitStruct);
 
 #if BOARD_YARDFORCE500_VARIANT_ORIG
