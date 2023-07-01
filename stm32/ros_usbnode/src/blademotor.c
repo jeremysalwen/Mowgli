@@ -116,12 +116,18 @@ void BLADEMOTOR_Init(void)
     GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
+#if BOARD_YARDFORCE500_VARIANT_B
+    GPIO_InitStruct.Alternate = GPIO_AF8_USART6;
+#endif
     HAL_GPIO_Init(BLADEMOTOR_USART_RX_PORT, &GPIO_InitStruct);
 
     // TX
     GPIO_InitStruct.Pin = BLADEMOTOR_USART_TX_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
+#if BOARD_YARDFORCE500_VARIANT_B
+    GPIO_InitStruct.Alternate = GPIO_AF8_USART6;
+#endif
     HAL_GPIO_Init(BLADEMOTOR_USART_TX_PORT, &GPIO_InitStruct);    
 
     BLADEMOTOR_USART_Handler.Instance = BLADEMOTOR_USART_INSTANCE;
