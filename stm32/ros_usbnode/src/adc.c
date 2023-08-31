@@ -191,7 +191,7 @@ void ADC_Charging_Init(void)
 	ADC_Charging_Handle.Init.NbrOfConversion = 1;
 
 #if BOARD_YARDFORCE500_VARIANT_B
-	ADC_Charging_Handle.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
+	ADC_Charging_Handle.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
 	ADC_Charging_Handle.Init.Resolution = ADC_RESOLUTION_12B;
 	ADC_Charging_Handle.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
     ADC_Charging_Handle.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T2_CC2;
