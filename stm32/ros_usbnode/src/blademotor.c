@@ -112,7 +112,7 @@ void BLADEMOTOR_Init(void)
 #endif
     
     // RX
-    GPIO_InitStruct.Pin = BLADEMOTOR_USART_RX_PIN;
+    GPIO_InitStruct.Pin = BLADEMOTOR_USART_TX_PIN|BLADEMOTOR_USART_RX_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
@@ -122,7 +122,7 @@ void BLADEMOTOR_Init(void)
     HAL_GPIO_Init(BLADEMOTOR_USART_RX_PORT, &GPIO_InitStruct);
 
     // TX
-    GPIO_InitStruct.Pin = BLADEMOTOR_USART_TX_PIN;
+    GPIO_InitStruct.Pin = BLADEMOTOR_USART_TX_PIN|BLADEMOTOR_USART_RX_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
 #if BOARD_YARDFORCE500_VARIANT_B
