@@ -15,7 +15,7 @@
 #include <math.h>
 
 #include "imu/imu.h"
-#include "imu/altimu-10v5.h"
+#include "imu/lsm6.h"
 #include "imu/mpu6050.h"
 #include "imu/wt901.h"
 #include "i2c.h"
@@ -284,11 +284,11 @@ void IMU_Init() {
   imuReadAccelerometerRaw=NULL;
   imuReadGyroRaw=NULL;
 
-#ifndef DISABLE_ALTIMU10v5
-  if (ALTIMU10v5_TestDevice()) {
-    ALTIMU10v5_Init();
-    imuReadAccelerometerRaw=ALTIMU10v5_ReadAccelerometerRaw;
-    imuReadGyroRaw=ALTIMU10v5_ReadGyroRaw;
+#ifndef DISABLE_LSM6
+  if (LSM6_TestDevice()) {
+    LSM6_Init();
+    imuReadAccelerometerRaw=LSM6_ReadAccelerometerRaw;
+    imuReadGyroRaw=LSM6_ReadGyroRaw;
   }
 #endif
 
