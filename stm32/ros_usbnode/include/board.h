@@ -129,7 +129,7 @@ extern "C"
 #define EXTERNAL_IMU_ANGULAR       1
 
 // Force disable IMU to be detected - CURRENTLY THIS SETTING DOES NOT WORK!
-//#define DISABLE_ALTIMU10v5
+//#define DISABLE_LSM6
 //#define DISABLE_MPU6050
 //#define DISABLE_WT901
 
@@ -294,7 +294,7 @@ extern "C"
 #define PANEL_USART_IRQ USART1_IRQn
 #endif
 
-// J18 has the SPI3 pins, as we dont use SPI3, we recycle them for I2C Bitbanging (for our Pololu ALtIMU-10v5)
+// J18 has the SPI3 pins, as we dont use SPI3, we recycle them for I2C Bitbanging (for our IMU)
 #ifdef SOFT_I2C_ENABLED
 #define SOFT_I2C_SCL_PIN GPIO_PIN_3
 #define SOFT_I2C_SCL_PORT GPIOB
