@@ -97,8 +97,8 @@ int main(void)
   SystemClock_Config();
 
 #if BOARD_YARDFORCE500_VARIANT_ORIG
-  // TODO: Check if some equivalent is needed for the STM32f4
   __HAL_RCC_AFIO_CLK_ENABLE();
+  __HAL_RCC_PWR_CLK_ENABLE();
 #endif
 
   MX_DMA_Init();
