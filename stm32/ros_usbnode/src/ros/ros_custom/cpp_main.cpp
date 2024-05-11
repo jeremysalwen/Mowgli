@@ -80,7 +80,7 @@ uint8_t RxBuffer[RxBufferSize];
 struct ringbuffer rb;
 
 ros::Time last_cmd_vel(0, 0);
-uint32_t last_cmd_vel_age; // age of last velocity command
+double last_cmd_vel_age; // age of last velocity command
 
 // drive motor control
 static uint8_t left_speed = 0;
@@ -382,8 +382,8 @@ extern "C" void motors_handler()
 		else
 		{
 			// if the last velocity cmd is older than 1sec we stop the drive motors
-			last_cmd_vel_age = nh.now().sec - last_cmd_vel.sec;
-			if (last_cmd_vel_age > 1)
+			last_cmd_vel_age = nh.now().toSec() - last_cmd_vel.toSec();
+			if (last_cmd_vel_age > 0.2)
 			{
 				DRIVEMOTOR_SetSpeed(0, 0, 0, 0);
 			}
