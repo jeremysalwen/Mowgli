@@ -161,7 +161,15 @@ void DRIVEMOTOR_Init(void)
     // Alternate Pin Set ?
     __HAL_AFIO_REMAP_USART2_ENABLE();
 #elif BOARD_YARDFORCE500_VARIANT_B
-    // RX TX
+    // RX
+    GPIO_InitStruct.Pin = DRIVEMOTORS_USART_TX_PIN|DRIVEMOTORS_USART_RX_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
+    HAL_GPIO_Init(DRIVEMOTORS_USART_RX_PORT, &GPIO_InitStruct);
+
+    // TX
     GPIO_InitStruct.Pin = DRIVEMOTORS_USART_TX_PIN | DRIVEMOTORS_USART_RX_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -436,7 +444,7 @@ void DRIVEMOTOR_App_Rx(void)
 /// @param right_speed right motor speed byte
 /// @param left_dir left motor direction bit
 /// @param right_dir  left motor direction bit
-void DRIVEMOTOR_SetSpeed(uint8_t left_speed, uint8_t right_speed, uint8_t left_dir, uint8_t right_dir)
+void  DRIVEMOTOR_SetSpeed(uint8_t left_speed, uint8_t right_speed, uint8_t left_dir, uint8_t right_dir)
 {
     left_speed_req = left_speed;
     right_speed_req = right_speed;
