@@ -620,10 +620,7 @@ extern "C" void broadcast_handler()
 		// Publish Power message to /ll/power
 		om_power_msg.stamp = nh.now();
 		om_power_msg.battery_voltage_adc = battery_voltage;
-		om_power_msg.battery_voltage_chg = battery_voltage;
-		om_power_msg.battery_voltage_bms = battery_voltage;
 		om_power_msg.charge_voltage_adc = charge_voltage;
-		om_power_msg.charge_voltage_chg = charge_voltage;
 		om_power_msg.charge_current = current;
 		om_power_msg.charger_enabled = chargecontrol_is_charging;
 		om_power_msg.charger_status = chargecontrol_is_charging ? "charging" : "idle";
