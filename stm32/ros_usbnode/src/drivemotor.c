@@ -538,6 +538,25 @@ void DRIVEMOTOR_App_Rx(void)
                          (unsigned long)l_u32RightInc,
                          (unsigned long)l_u32OldRightTotal,
                          (unsigned long)right_encoder_ticks);
+
+            /* Full raw 20-byte controller frame, hex, keyed by the SAME seq as
+             * the TICKCSV line above (l_u32ReportSeq was just post-incremented).
+             * This is ground truth for reverse-engineering the bytes the driver
+             * normally discards - u16_ukndata0 (B8-9), u8_left_ukn (B17),
+             * u8_right_ukn (B18), the fixed u16_id (B3-4) - and also lets us
+             * re-confirm the known field layout (preamble/ticks/power/crc)
+             * offline by correlating against the motion context in TICKCSV. */
+            {
+                const uint8_t *l_pcu8 = (const uint8_t *)&drivemotor_psReceivedData;
+                debug_printf("RAWFRAME,%lu,"
+                             "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x"
+                             "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\r\n",
+                             (unsigned long)(l_u32ReportSeq - 1),
+                             l_pcu8[0], l_pcu8[1], l_pcu8[2], l_pcu8[3], l_pcu8[4],
+                             l_pcu8[5], l_pcu8[6], l_pcu8[7], l_pcu8[8], l_pcu8[9],
+                             l_pcu8[10], l_pcu8[11], l_pcu8[12], l_pcu8[13], l_pcu8[14],
+                             l_pcu8[15], l_pcu8[16], l_pcu8[17], l_pcu8[18], l_pcu8[19]);
+            }
         }
 #endif
 
