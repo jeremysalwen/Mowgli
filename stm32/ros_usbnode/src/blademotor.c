@@ -59,6 +59,7 @@ uint32_t BLADEMOTOR_u32Error = 0;
 static uint8_t blademotor_pu8ReceivedData[BLADEMOTOR_LENGTH_RECEIVED_MSG] = {0};
 static uint8_t blademotor_pu8RqstMessage[BLADEMOTOR_LENGTH_RQST_MSG]  = {0x55, 0xaa, 0x03, 0x20, 0x80, 0x00, 0xA2};
 static uint8_t blademotor_u8OnOff = 0;
+static uint8_t blademotor_u8Direction = 0;   /* 0 = forward, 1 = reverse */
 
 const uint8_t blademotor_pcu8Preamble[5]  = {0x55,0xAA,0x0A,0x2,0xD0};
 const uint8_t blademotor_pcu8InitMsg[BLADEMOTOR_LENGTH_INIT_MSG] =  { 0x55, 0xaa, 0x12, 0x20, 0x80, 0x00, 0xac, 0x0d, 0x00, 0x02, 0x32, 0x50, 0x1e, 0x04, 0x00, 0x15, 0x21, 0x05, 0x0a, 0x19, 0x3c, 0xaa };
@@ -74,8 +75,16 @@ void blademotor_prepareMsg(void)
 {    
     if (blademotor_u8OnOff)
     {
-        blademotor_pu8RqstMessage[5] = 0x80; /* change speed Motor */
-        blademotor_pu8RqstMessage[6] = 0x22; /* change CRC */
+        if (blademotor_u8Direction)
+        {
+            blademotor_pu8RqstMessage[5] = 0xC0; /* on, reverse (unverified opcode) */
+            blademotor_pu8RqstMessage[6] = 0x62; /* CRC = additive sum of bytes[0..5] */
+        }
+        else
+        {
+            blademotor_pu8RqstMessage[5] = 0x80; /* on, forward */
+            blademotor_pu8RqstMessage[6] = 0x22; /* change CRC */
+        }
     }
     else
     {
@@ -252,23 +261,13 @@ void  BLADEMOTOR_App(void){
 /// @brief control blade motor (there is no speed control for this motor)
 /// @param on_off 1 to turn on, 0 to turn off
 void BLADEMOTOR_Set(uint8_t on_off, uint8_t direction)
-{       
+{
+    /* Just latch the requested state here. The actual request bytes (incl.
+     * direction) are written by blademotor_prepareMsg() right before each
+     * transmit in BLADEMOTOR_App() - if we set them here they would be
+     * overwritten by prepareMsg() on the very next cycle. */
     blademotor_u8OnOff = on_off;
-    if (on_off)
-    {
-        /*if (direction) {
-            blademotor_pu8RqstMessage[5] = 0xC0;
-            blademotor_pu8RqstMessage[6] = 0xE2;
-        } else {*/
-            blademotor_pu8RqstMessage[5] = 0x80; /* change speed Motor */
-            blademotor_pu8RqstMessage[6] = 0x22; /* change CRC */
-        //}
-    }
-    else
-    {
-        blademotor_pu8RqstMessage[5] = 0x00; /* change speed Motor */
-        blademotor_pu8RqstMessage[6] = 0xa2; /* change CRC */
-    }
+    blademotor_u8Direction = direction;
 }
 
 /// @brief drive motor receive interrupt handler
