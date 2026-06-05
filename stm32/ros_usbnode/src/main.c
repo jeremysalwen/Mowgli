@@ -45,6 +45,10 @@
 #include "cpp_main.h"
 #include "ringbuffer.h"
 
+#if defined(DEBUG_RTT)
+#include "SEGGER_RTT.h"
+#endif
+
 static void WATCHDOG_vInit(void);
 static void WATCHDOG_Refresh(void);
 void TIM4_Init(void);
