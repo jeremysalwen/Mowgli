@@ -31,6 +31,13 @@
 #define DRIVEMOTOR_LENGTH_INIT_MSG 38
 #define DRIVEMOTOR_LENGTH_RQST_MSG 12
 #define DRIVEMOTOR_LENGTH_RECEIVED_MSG 20
+
+/* Kinematic ceiling on per-frame encoder motion. cmd_vel is capped to MAX_MPS,
+ * so in one ~20 ms controller frame a wheel advances at most
+ *   MAX_MPS * TICKS_PER_M * 0.02 s  ticks  (= 3 at 0.5 m/s, 300 ticks/m).
+ * The x3 factor is slack for frame-time jitter; any step above this is not real
+ * motion (a counter reset/glitch) and is dropped rather than accumulated. */
+#define DRIVEMOTOR_MAX_TICKS_PER_FRAME ((uint32_t)(MAX_MPS * TICKS_PER_M * 0.02f * 3.0f))
 /******************************************************************************
  * Module Preprocessor Macros
  *******************************************************************************/
@@ -408,27 +415,158 @@ void DRIVEMOTOR_App_Rx(void)
         right_power = drivemotor_psReceivedData.u8_right_power;
 
         /*
-          Encoder value can reset to zero twice when changing direction
-          2nd reset occurs when the speed changes from zero to non-zero
-          something the ticks are holded until the next commands
-        */
-
+         * Accumulate distance ticks robustly.
+         *
+         * The drive controller reports a per-wheel counter (u16_*_ticks) that
+         * rises monotonically within a motion segment and snaps back toward 0 on
+         * a direction/stop transition - with up to one controller frame of
+         * latency relative to the direction it reports. The old code tried to
+         * PREDICT that reset from direction/speed edges and pre-zero prev_*; that
+         * prediction raced the controller's reset latency, so on transitions it
+         * scored the pre-reset count as a phantom jump (e.g. raw 10->11->1 became
+         * +11,+10). Those are the "implausible wheel ticks" the ROS layer filters
+         * with vx>0.6.
+         *
+         * Instead, detect the reset DIRECTLY from the counter: a normal frame
+         * increases it (add the difference); a decrease means it reset (the new
+         * segment's progress so far is just the new value). Bound the result to
+         * what is kinematically possible so no stale/glitch value can leak in.
+         */
         left_wheel_speed_val = left_direction * drivemotor_psReceivedData.u8_left_speed;
-        if (left_direction == 0 || (left_direction != prev_left_direction) || (prev_left_wheel_speed_val == 0 && left_wheel_speed_val != 0))
+        int32_t l_s32LeftDelta = (int32_t)left_encoder_val - (int32_t)prev_left_encoder_val;
+        uint32_t l_u32LeftInc =
+            (left_direction == 0) ? 0u                                   /* not driving */
+          : (l_s32LeftDelta >= 0) ? (uint32_t)l_s32LeftDelta             /* increment within a segment - the counter is
+                                                                          * cumulative & CRC-checked, so this is real even
+                                                                          * if a delayed read spans several frames: add it */
+          : ((uint32_t)left_encoder_val <= DRIVEMOTOR_MAX_TICKS_PER_FRAME)
+                                  ? (uint32_t)left_encoder_val           /* counter reset -> new-segment progress so far */
+                                  : 0u;                                  /* "reset" to an implausibly large value is not a
+                                                                          * clean reset -> drop (fail safe) */
+        left_encoder_ticks += l_u32LeftInc;
+
+        right_wheel_speed_val = right_direction * drivemotor_psReceivedData.u8_right_speed;
+        int32_t l_s32RightDelta = (int32_t)right_encoder_val - (int32_t)prev_right_encoder_val;
+        uint32_t l_u32RightInc =
+            (right_direction == 0) ? 0u
+          : (l_s32RightDelta >= 0) ? (uint32_t)l_s32RightDelta
+          : ((uint32_t)right_encoder_val <= DRIVEMOTOR_MAX_TICKS_PER_FRAME)
+                                   ? (uint32_t)right_encoder_val
+                                   : 0u;
+        right_encoder_ticks += l_u32RightInc;
+
+#ifdef DRIVEMOTOR_TICK_REPORT
+        /*
+         * CSV telemetry for hardware evidence captures.
+         *
+         * old_* reproduces the legacy accumulator from this file before the
+         * reset-race fix:
+         *   if direction/speed edge is predicted, pretend prev raw counter = 0;
+         *   then add abs(direction * (raw - predicted_prev)).
+         *
+         * fixed_* is the increment actually accumulated above from the same raw
+         * controller frame. This lets one capture show the controller's real
+         * report and both firmware interpretations side by side.
+         */
         {
-            prev_left_encoder_val = 0;
+            static uint8_t l_u8ReportHeaderPrinted = 0;
+            static uint32_t l_u32ReportSeq = 0;
+            static uint32_t l_u32ReportStartMs = 0;
+            static uint32_t l_u32OldLeftTotal = 0;
+            static uint32_t l_u32OldRightTotal = 0;
+
+            if (l_u32ReportStartMs == 0)
+            {
+                l_u32ReportStartMs = HAL_GetTick();
+            }
+
+            int8_t l_s8CmdLeftDir = (left_speed_req == 0) ? 0 : (left_dir_req ? 1 : -1);
+            int8_t l_s8CmdRightDir = (right_speed_req == 0) ? 0 : (right_dir_req ? 1 : -1);
+
+            int32_t l_s32OldLeftPrev = (int32_t)prev_left_encoder_val;
+            if (left_direction == 0 ||
+                (left_direction != prev_left_direction) ||
+                (prev_left_wheel_speed_val == 0 && left_wheel_speed_val != 0))
+            {
+                l_s32OldLeftPrev = 0;
+            }
+            uint32_t l_u32OldLeftInc =
+                (uint32_t)abs(left_direction * ((int32_t)left_encoder_val - l_s32OldLeftPrev));
+
+            int32_t l_s32OldRightPrev = (int32_t)prev_right_encoder_val;
+            if (right_direction == 0 ||
+                (right_direction != prev_right_direction) ||
+                (prev_right_wheel_speed_val == 0 && right_wheel_speed_val != 0))
+            {
+                l_s32OldRightPrev = 0;
+            }
+            uint32_t l_u32OldRightInc =
+                (uint32_t)abs(right_direction * ((int32_t)right_encoder_val - l_s32OldRightPrev));
+
+            l_u32OldLeftTotal += l_u32OldLeftInc;
+            l_u32OldRightTotal += l_u32OldRightInc;
+
+            if (!l_u8ReportHeaderPrinted)
+            {
+                debug_printf("TICKCSV_HEADER,v2,cmd,reported,raw,legacy,fixed\r\n");
+                l_u8ReportHeaderPrinted = 1;
+            }
+
+            debug_printf("TICKCSV,%lu,%lu,%lu,%d,%u,%d,%u,%d,%u,%u,%u,%ld,%lu,%lu,%lu,%lu,%d,%u,%u,%u,%ld,%lu,%lu,%lu,%lu\r\n",
+                         (unsigned long)l_u32ReportSeq++,
+                         (unsigned long)(HAL_GetTick() - l_u32ReportStartMs),
+                         (unsigned long)DRIVEMOTOR_MAX_TICKS_PER_FRAME,
+                         l_s8CmdLeftDir,
+                         left_speed_req,
+                         l_s8CmdRightDir,
+                         right_speed_req,
+                         left_direction,
+                         drivemotor_psReceivedData.u8_left_speed,
+                         left_encoder_val,
+                         prev_left_encoder_val,
+                         (long)l_s32LeftDelta,
+                         (unsigned long)l_u32OldLeftInc,
+                         (unsigned long)l_u32LeftInc,
+                         (unsigned long)l_u32OldLeftTotal,
+                         (unsigned long)left_encoder_ticks,
+                         right_direction,
+                         drivemotor_psReceivedData.u8_right_speed,
+                         right_encoder_val,
+                         prev_right_encoder_val,
+                         (long)l_s32RightDelta,
+                         (unsigned long)l_u32OldRightInc,
+                         (unsigned long)l_u32RightInc,
+                         (unsigned long)l_u32OldRightTotal,
+                         (unsigned long)right_encoder_ticks);
         }
-        left_encoder_ticks += abs(left_direction * (left_encoder_val - prev_left_encoder_val));
+#endif
+
+#ifdef DRIVEMOTOR_TICK_DEBUG
+        /* Log per-frame encoder telemetry. The macro value is the per-side
+         * increment threshold for logging; =0 logs every active/reset frame.
+         * raw = signed counter delta (negative => a controller reset),
+         * inc = ticks actually accumulated this frame. */
+        if (l_u32LeftInc > (DRIVEMOTOR_TICK_DEBUG) || l_u32RightInc > (DRIVEMOTOR_TICK_DEBUG) ||
+            l_s32LeftDelta < 0 || l_s32RightDelta < 0 ||
+            (uint32_t)abs(l_s32LeftDelta) > DRIVEMOTOR_MAX_TICKS_PER_FRAME ||
+            (uint32_t)abs(l_s32RightDelta) > DRIVEMOTOR_MAX_TICKS_PER_FRAME)
+        {
+            debug_printf("TICK L[d=%d s=%3u v=%5u p=%5u raw=%+ld inc=%lu]=%lu  R[d=%d s=%3u v=%5u p=%5u raw=%+ld inc=%lu]=%lu%s\r\n",
+                         left_direction, drivemotor_psReceivedData.u8_left_speed, left_encoder_val, prev_left_encoder_val,
+                         (long)l_s32LeftDelta, (unsigned long)l_u32LeftInc, (unsigned long)left_encoder_ticks,
+                         right_direction, drivemotor_psReceivedData.u8_right_speed, right_encoder_val, prev_right_encoder_val,
+                         (long)l_s32RightDelta, (unsigned long)l_u32RightInc, (unsigned long)right_encoder_ticks,
+                         /* flag frames where the RAW counter delta exceeds the kinematic limit -
+                          * i.e. exactly where the old accumulator would have injected a spike,
+                          * now neutralised (inc above stays small/0). */
+                         ((uint32_t)abs(l_s32LeftDelta) > DRIVEMOTOR_MAX_TICKS_PER_FRAME ||
+                          (uint32_t)abs(l_s32RightDelta) > DRIVEMOTOR_MAX_TICKS_PER_FRAME) ? "  <<< would-spike (fixed)" : "");
+        }
+#endif
+
         prev_left_encoder_val = left_encoder_val;
         prev_left_wheel_speed_val = left_wheel_speed_val;
         prev_left_direction = left_direction;
-
-        right_wheel_speed_val = right_direction * drivemotor_psReceivedData.u8_right_speed;
-        if (right_direction == 0 || (right_direction != prev_right_direction) || (prev_right_wheel_speed_val == 0 && right_wheel_speed_val != 0))
-        {
-            prev_right_encoder_val = 0;
-        }
-        right_encoder_ticks += abs(right_direction * (right_encoder_val - prev_right_encoder_val));
         prev_right_encoder_val = right_encoder_val;
         prev_right_wheel_speed_val = right_wheel_speed_val;
         prev_right_direction = right_direction;

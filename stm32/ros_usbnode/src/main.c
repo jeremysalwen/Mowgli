@@ -214,6 +214,229 @@ int main(void)
   // <chirp><chirp> means we are in the main loop
   chirp(2);
 
+#ifdef WHEEL_MOVE_TEST
+#ifndef WHEEL_MOVE_TEST_SPEED
+#define WHEEL_MOVE_TEST_SPEED 40 /* PWM units, ~ speed/300 m/s -> 40 ~= 0.13 m/s */
+#endif
+  /*
+   * Low-level drive proof-of-life (debug builds only, -DWHEEL_MOVE_TEST).
+   * Directly drives both wheels: brief forward pulse, then an equal backward
+   * pulse (net travel ~0), entirely over ST-Link with no ROS / cmd_vel.
+   * Runs here - before the main loop - because motors_handler() would force
+   * the speed back to 0 whenever no recent cmd_vel is present.
+   * Aborts instantly if a stop button is pressed or a tilt is sensed.
+   */
+  {
+    /* {left_dir, right_dir, moving} : dir 1=forward 0=reverse
+     * Includes direct forward<->reverse flips (no stop between) to provoke the
+     * implausible-tick spike, which fires when the firmware re-zeros prev_*_encoder_val
+     * on a transition while the controller's segment counter still holds a value.
+     * Net travel ~0. */
+    static const uint8_t l_au8Phase[6][3] = {
+        {1, 1, 1}, /* forward 0.5s */
+        {0, 0, 1}, /* reverse 0.5s  (direct flip while moving) */
+        {1, 1, 1}, /* forward 0.5s  (direct flip while moving) */
+        {0, 0, 0}, /* stop    0.5s */
+        {0, 0, 1}, /* reverse 0.5s  (stop -> start) */
+        {0, 0, 0}, /* stop    0.5s */
+    };
+    DB_TRACE("\r\n\e[01;33m >>> WHEEL_MOVE_TEST start (speed=%d)\e[0m\r\n", WHEEL_MOVE_TEST_SPEED);
+
+    DRIVEMOTOR_SetSpeed(0, 0, 0, 0);
+    DRIVEMOTOR_App_10ms(); /* INIT_1: sends controller init message, -> RUN */
+    HAL_Delay(50);
+
+    for (uint8_t p = 0; p < sizeof(l_au8Phase) / sizeof(l_au8Phase[0]); p++)
+    {
+      uint8_t l_u8Spd = l_au8Phase[p][2] ? WHEEL_MOVE_TEST_SPEED : 0;
+      DRIVEMOTOR_SetSpeed(l_u8Spd, l_u8Spd, l_au8Phase[p][0], l_au8Phase[p][1]);
+#ifndef WHEEL_MOVE_TEST_PHASE_FRAMES
+#define WHEEL_MOVE_TEST_PHASE_FRAMES 25 /* 25 * 20ms = 0.5s per phase */
+#endif
+      for (uint16_t i = 0; i < WHEEL_MOVE_TEST_PHASE_FRAMES; i++)
+      {
+        if (Emergency_StopButtonYellow() || Emergency_StopButtonWhite() || Emergency_Tilt())
+        {
+          DRIVEMOTOR_SetSpeed(0, 0, 0, 0);
+          DRIVEMOTOR_App_10ms();
+          DB_TRACE("\e[01;31m >>> WHEEL_MOVE_TEST aborted (e-stop/tilt)\e[0m\r\n");
+          goto wheel_move_test_done;
+        }
+        DRIVEMOTOR_App_10ms();
+        DRIVEMOTOR_App_Rx();
+        HAL_Delay(20);
+      }
+      DB_TRACE("   phase %u done: L_ticks=%lu R_ticks=%lu err=%lu\r\n",
+               (unsigned)p, (unsigned long)left_encoder_ticks,
+               (unsigned long)right_encoder_ticks, (unsigned long)DRIVEMOTOR_u32ErrorCnt);
+    }
+  wheel_move_test_done:
+    DRIVEMOTOR_SetSpeed(0, 0, 0, 0);
+    DRIVEMOTOR_App_10ms();
+    DB_TRACE("\e[01;33m >>> WHEEL_MOVE_TEST done. L_ticks=%lu R_ticks=%lu\e[0m\r\n",
+             (unsigned long)left_encoder_ticks, (unsigned long)right_encoder_ticks);
+  }
+#endif
+
+#ifdef WHEEL_STRESS_TEST
+#ifndef WHEEL_MOVE_TEST_SPEED
+#define WHEEL_MOVE_TEST_SPEED 90
+#endif
+#ifndef WHEEL_STRESS_FLIP_MS
+#define WHEEL_STRESS_FLIP_MS 250 /* flip commanded direction this often */
+#endif
+#ifndef WHEEL_STRESS_MS
+#define WHEEL_STRESS_MS 8000 /* total duration */
+#endif
+  /*
+   * Faithfully mimic the *real* main-loop timing (unlike WHEEL_MOVE_TEST's rigid
+   * lockstep): poll DRIVEMOTOR_App_Rx() continuously, run DRIVEMOTOR_App_10ms()
+   * on a 20ms cadence, and flip the commanded direction ASYNCHRONOUSLY to the
+   * frame cycle - exactly how cmd_vel arrives. Off-the-ground wheels spin freely
+   * so this can run as long/fast as we like. Goal: reproduce the implausible-tick
+   * spike (reset-race between the controller zeroing its segment counter and the
+   * firmware zeroing prev_*_encoder_val).
+   */
+  {
+    DB_TRACE("\r\n\e[01;33m >>> WHEEL_STRESS_TEST start (speed=%d flip=%dms dur=%dms)\e[0m\r\n",
+             WHEEL_MOVE_TEST_SPEED, WHEEL_STRESS_FLIP_MS, WHEEL_STRESS_MS);
+    DRIVEMOTOR_SetSpeed(0, 0, 0, 0);
+    DRIVEMOTOR_App_10ms(); /* INIT_1 -> RUN */
+    HAL_Delay(50);
+
+    uint32_t l_u32Start = HAL_GetTick();
+    uint32_t l_u32T10 = HAL_GetTick();
+    uint32_t l_u32TFlip = HAL_GetTick();
+    uint32_t l_u32TRx = HAL_GetTick();
+    uint8_t l_u8Dir = 1;
+    DRIVEMOTOR_SetSpeed(WHEEL_MOVE_TEST_SPEED, WHEEL_MOVE_TEST_SPEED, l_u8Dir, l_u8Dir);
+
+    while ((HAL_GetTick() - l_u32Start) < WHEEL_STRESS_MS)
+    {
+      if (Emergency_StopButtonYellow() || Emergency_StopButtonWhite() || Emergency_Tilt())
+      {
+        DB_TRACE("\e[01;31m >>> WHEEL_STRESS_TEST aborted (e-stop/tilt)\e[0m\r\n");
+        break;
+      }
+#ifdef WHEEL_STRESS_RX_THROTTLE_MS
+      /* Simulate a main-loop hiccup: only service App_Rx every N ms, so the
+       * controller's counter advances over several frames between reads and a
+       * single delta exceeds one frame of motion (exercises the kinematic cap). */
+      if ((HAL_GetTick() - l_u32TRx) >= WHEEL_STRESS_RX_THROTTLE_MS)
+      {
+        l_u32TRx += WHEEL_STRESS_RX_THROTTLE_MS;
+        DRIVEMOTOR_App_Rx();
+      }
+#else
+      DRIVEMOTOR_App_Rx(); /* continuous poll, like the real loop */
+#endif
+      if ((HAL_GetTick() - l_u32T10) >= 20)
+      {
+        l_u32T10 += 20;
+        DRIVEMOTOR_App_10ms();
+      }
+      if ((HAL_GetTick() - l_u32TFlip) >= WHEEL_STRESS_FLIP_MS)
+      {
+        l_u32TFlip += WHEEL_STRESS_FLIP_MS;
+        l_u8Dir ^= 1; /* async direction flip, decoupled from frame boundary */
+        DRIVEMOTOR_SetSpeed(WHEEL_MOVE_TEST_SPEED, WHEEL_MOVE_TEST_SPEED, l_u8Dir, l_u8Dir);
+      }
+    }
+    DRIVEMOTOR_SetSpeed(0, 0, 0, 0);
+    DRIVEMOTOR_App_10ms();
+    DB_TRACE("\e[01;33m >>> WHEEL_STRESS_TEST done. L_ticks=%lu R_ticks=%lu err=%lu\e[0m\r\n",
+             (unsigned long)left_encoder_ticks, (unsigned long)right_encoder_ticks,
+             (unsigned long)DRIVEMOTOR_u32ErrorCnt);
+  }
+#endif
+
+#ifdef WHEEL_PROFILE_TEST
+#ifndef WHEEL_MOVE_TEST_SPEED
+#define WHEEL_MOVE_TEST_SPEED 90
+#endif
+  /*
+   * Scripted drive/stop motion profile (debug builds only, -DWHEEL_PROFILE_TEST).
+   * Same realistic async main-loop timing as WHEEL_STRESS_TEST (continuous
+   * App_Rx poll, 20ms App_10ms cadence, commands applied asynchronously to the
+   * frame boundary), but instead of a fixed-period flip it steps through a
+   * scripted table of {direction, moving, duration} phases. The table covers the
+   * cmd_vel transitions that normal driving produces but the pure flip test
+   * never exercises:
+   *   - spin-up from rest (stop -> drive)
+   *   - drive -> stop (commanded speed to 0, held)
+   *   - stop -> drive resuming the SAME direction
+   *   - stop -> drive resuming the OPPOSITE direction
+   *   - a BRIEF stop (a couple of frames) then resume the SAME direction
+   *   - a BRIEF stop (a couple of frames) then resume the OPPOSITE direction
+   *   - a direct reversal while moving (no stop), for comparison
+   * Off-the-ground wheels spin freely; aborts instantly on e-stop/tilt.
+   */
+  {
+    /* {dir (1=fwd, 0=rev), moving (1=drive, 0=stop), duration_ms} */
+    static const uint16_t l_au16Profile[][3] = {
+        {1, 1, 1000}, /* spin-up from rest, then steady forward (stop -> drive) */
+        {1, 0,  700}, /* drive -> stop (long dwell)                             */
+        {1, 1,  900}, /* stop -> drive, SAME direction (forward)                */
+        {1, 0,  700}, /* drive -> stop (long dwell)                             */
+        {0, 1,  900}, /* stop -> drive, OPPOSITE direction (reverse)            */
+        {0, 0,   60}, /* BRIEF stop (~3 frames)                                 */
+        {0, 1,  800}, /* resume SAME direction (reverse) after brief stop       */
+        {0, 0,   60}, /* BRIEF stop (~3 frames)                                 */
+        {1, 1,  800}, /* resume OPPOSITE direction (forward) after brief stop   */
+        {0, 1,  800}, /* direct reversal while moving (no stop), for comparison */
+        {0, 0,  700}, /* final drive -> stop                                    */
+    };
+    const uint8_t l_u8Phases = (uint8_t)(sizeof(l_au16Profile) / sizeof(l_au16Profile[0]));
+    DB_TRACE("\r\n\e[01;33m >>> WHEEL_PROFILE_TEST start (speed=%d phases=%u)\e[0m\r\n",
+             WHEEL_MOVE_TEST_SPEED, (unsigned)l_u8Phases);
+    DRIVEMOTOR_SetSpeed(0, 0, 0, 0);
+    DRIVEMOTOR_App_10ms(); /* INIT_1 -> RUN */
+    HAL_Delay(50);
+
+    uint32_t l_u32T10 = HAL_GetTick();
+    uint32_t l_u32PhaseStart = HAL_GetTick();
+    uint8_t l_u8Cur = 0;
+    {
+      uint8_t l_u8Dir = (uint8_t)l_au16Profile[0][0];
+      uint8_t l_u8Spd = l_au16Profile[0][1] ? WHEEL_MOVE_TEST_SPEED : 0;
+      DRIVEMOTOR_SetSpeed(l_u8Spd, l_u8Spd, l_u8Dir, l_u8Dir);
+    }
+
+    while (l_u8Cur < l_u8Phases)
+    {
+      if (Emergency_StopButtonYellow() || Emergency_StopButtonWhite() || Emergency_Tilt())
+      {
+        DB_TRACE("\e[01;31m >>> WHEEL_PROFILE_TEST aborted (e-stop/tilt)\e[0m\r\n");
+        break;
+      }
+      DRIVEMOTOR_App_Rx(); /* continuous poll, like the real loop */
+      if ((HAL_GetTick() - l_u32T10) >= 20)
+      {
+        l_u32T10 += 20;
+        DRIVEMOTOR_App_10ms();
+      }
+      if ((HAL_GetTick() - l_u32PhaseStart) >= l_au16Profile[l_u8Cur][2])
+      {
+        l_u32PhaseStart += l_au16Profile[l_u8Cur][2]; /* advance, no drift */
+        l_u8Cur++;
+        if (l_u8Cur >= l_u8Phases)
+          break;
+        uint8_t l_u8Dir = (uint8_t)l_au16Profile[l_u8Cur][0];
+        uint8_t l_u8Spd = l_au16Profile[l_u8Cur][1] ? WHEEL_MOVE_TEST_SPEED : 0;
+        DRIVEMOTOR_SetSpeed(l_u8Spd, l_u8Spd, l_u8Dir, l_u8Dir);
+        DB_TRACE("   profile phase %u/%u: dir=%u moving=%u dur=%ums\r\n",
+                 (unsigned)l_u8Cur, (unsigned)l_u8Phases, (unsigned)l_u8Dir,
+                 (unsigned)l_au16Profile[l_u8Cur][1], (unsigned)l_au16Profile[l_u8Cur][2]);
+      }
+    }
+    DRIVEMOTOR_SetSpeed(0, 0, 0, 0);
+    DRIVEMOTOR_App_10ms();
+    DB_TRACE("\e[01;33m >>> WHEEL_PROFILE_TEST done. L_ticks=%lu R_ticks=%lu err=%lu\e[0m\r\n",
+             (unsigned long)left_encoder_ticks, (unsigned long)right_encoder_ticks,
+             (unsigned long)DRIVEMOTOR_u32ErrorCnt);
+  }
+#endif
+
   WATCHDOG_vInit();
 
   while (1)
@@ -891,7 +1114,9 @@ void vprint(const char *fmt, va_list argp)
   char string[200];
   if (0 < vsprintf(string, fmt, argp)) // build string
   {
-#if DEBUG_TYPE == DEBUG_TYPE_SWO
+#if defined(DEBUG_RTT)
+    SEGGER_RTT_Write(0, string, strlen(string));
+#elif DEBUG_TYPE == DEBUG_TYPE_SWO
     for (int i = 0; i < strlen(string); i++)
     {
       ITM_SendChar(string[i]);
