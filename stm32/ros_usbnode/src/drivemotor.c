@@ -31,6 +31,13 @@
 #define DRIVEMOTOR_LENGTH_INIT_MSG 38
 #define DRIVEMOTOR_LENGTH_RQST_MSG 12
 #define DRIVEMOTOR_LENGTH_RECEIVED_MSG 20
+
+/* Kinematic ceiling on per-frame encoder motion. cmd_vel is capped to MAX_MPS,
+ * so in one ~20 ms controller frame a wheel advances at most
+ *   MAX_MPS * TICKS_PER_M * 0.02 s  ticks.
+ * The x3 factor is slack for frame-time jitter; a "reset" whose remainder
+ * exceeds this is not real motion (a glitch) and is dropped, not accumulated. */
+#define DRIVEMOTOR_MAX_TICKS_PER_FRAME ((uint32_t)(MAX_MPS * TICKS_PER_M * 0.02f * 3.0f))
 /******************************************************************************
  * Module Preprocessor Macros
  *******************************************************************************/
@@ -66,6 +73,15 @@ typedef struct
     /*19*/ uint8_t u8_CRC;
 } __attribute__((__packed__)) DRIVEMOTORS_data_t;
 
+/* Per-wheel travel-direction filter (see resolve_direction / DRIVEMOTOR_App_Rx).
+ * Holds the last *confirmed* physical direction so that the controller's
+ * one-frame-early direction flip on a reversal cannot mis-sign coast ticks. */
+typedef struct
+{
+    int8_t  s8Eff;    /* committed/published travel direction (-1/0/+1)        */
+    uint8_t u8Resets; /* counter resets counted during an unconfirmed reversal */
+} DRIVEMOTOR_dirfilter_t;
+
 /******************************************************************************
  * Module Variable Definitions
  *******************************************************************************/
@@ -84,12 +100,10 @@ const uint8_t drivemotor_pcu8Preamble[5] = {0x55, 0xAA, 0x10, 0x01, 0xE0};
 // const uint8_t drivemotor_pcu8InitMsg[DRIVEMOTOR_LENGTH_INIT_MSG] = { 0x55, 0xaa, 0x08, 0x10, 0x80, 0xa0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x37};
 const uint8_t drivemotor_pcu8InitMsg[DRIVEMOTOR_LENGTH_INIT_MSG] = {0x55, 0xaa, 0x22, 0x10, 0x80, 0x00, 0x00, 0x00, 0x00, 0x02, 0xC8, 0x46, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x05, 0x0F, 0x14, 0x96, 0x0A, 0x1E, 0x5a, 0xfa, 0x05, 0x0A, 0x14, 0x32, 0x40, 0x04, 0x20, 0x01, 0x00, 0x00, 0x2C, 0x01, 0xEE};
 
-int8_t prev_left_direction = 0;
-int8_t prev_right_direction = 0;
 uint16_t prev_right_encoder_val = 0;
 uint16_t prev_left_encoder_val = 0;
-int16_t prev_right_wheel_speed_val = 0;
-int16_t prev_left_wheel_speed_val = 0;
+static DRIVEMOTOR_dirfilter_t left_dir_filter = {0, 0};
+static DRIVEMOTOR_dirfilter_t right_dir_filter = {0, 0};
 uint32_t right_encoder_ticks = 0;
 uint32_t left_encoder_ticks = 0;
 int8_t left_direction = 0;
@@ -240,12 +254,10 @@ void DRIVEMOTOR_Init(void)
 
     right_encoder_ticks = 0;
     left_encoder_ticks = 0;
-    prev_left_direction = 0;
-    prev_right_direction = 0;
     prev_right_encoder_val = 0;
     prev_left_encoder_val = 0;
-    prev_right_wheel_speed_val = 0;
-    prev_left_wheel_speed_val = 0;
+    left_dir_filter = (DRIVEMOTOR_dirfilter_t){0, 0};
+    right_dir_filter = (DRIVEMOTOR_dirfilter_t){0, 0};
 }
 
 /// @brief handle drive motor messages
@@ -366,6 +378,93 @@ void DRIVEMOTOR_App_10ms(void)
     }
 }
 
+/// @brief Resolve the physical travel direction of a wheel for odometry.
+///
+/// The drive controller flips its reported direction bit at the one to two
+/// frames BEFORE the wheel has actually reversed. For those frames it 
+/// reports the new direction with a speed byte of 0 while the wheel is really
+/// still coasting in the OLD direction. Believing that bit feeds odometry a
+/// few ticks with the wrong sign on every reversal.
+///
+/// So a reported reversal (opposite sign to the committed direction) is only
+/// adopted once the new segment is confirmed by EITHER
+///   (B) the reported speed byte going non-zero (controller is now actively
+///       driving the new direction), OR
+///   (A) a second counter reset (the controller's documented double-reset that
+///       brackets the real new segment).
+/// Until then the previously committed direction keeps being reported. Resumes
+/// in the same direction and the first motion from rest carry no stale motion to
+/// mis-sign, so they are adopted immediately.
+///
+/// @param f         per-wheel filter state (updated in place)
+/// @param reported  decoded reported direction this frame (-1/0/+1)
+/// @param speed     reported speed byte this frame
+/// @param reset     non-zero if the raw counter decreased this frame (a reset)
+/// @return the committed (publishable) travel direction
+static int8_t resolve_direction(DRIVEMOTOR_dirfilter_t *f, int8_t reported, uint8_t speed, int reset)
+{
+    if (reported != 0 && (speed != 0 || f->s8Eff == 0))
+    {
+        /* (B) the speed byte confirms real motion in the reported direction -
+         * or this is the first motion from rest, with no old direction to
+         * protect. Either way, believe the reported direction immediately. */
+        f->s8Eff = reported;
+        f->u8Resets = 0;
+    }
+    else if (reported == -f->s8Eff)
+    {
+        /* Unconfirmed reversal: the controller reports the opposite direction
+         * but the speed byte is still 0 while the wheel coasts the old way.
+         * Keep the old direction until (A) a second counter reset confirms the
+         * real new segment. (Frames here have speed 0, handled above first.) */
+        if (reset && ++f->u8Resets >= 2)
+        {
+            f->s8Eff = reported;
+            f->u8Resets = 0;
+        }
+    }
+    else
+    {
+        /* stop report or same-direction frame: no reversal in progress */
+        f->u8Resets = 0;
+    }
+    return f->s8Eff;
+}
+
+/// @brief Fold one controller frame into a wheel's tick total + travel direction.
+///
+/// Rule 1 - detect the counter reset directly: ANY decrease in the controller's
+/// per-wheel counter means it reset to 0, so the progress since the reset is the
+/// new value; otherwise the counter rose and we add the difference. (The old
+/// code PREDICTED the reset from direction/speed edges and pre-zeroed prev_*,
+/// which raced the controller's one-frame reset latency and scored the pre-reset
+/// count as a phantom jump - the "implausible wheel ticks" the ROS layer drops
+/// with vx>0.6.) A reset whose remainder exceeds one frame's kinematic limit is
+/// a glitch and is dropped rather than accumulated.
+///
+/// Rule 2 - the publishable direction is resolved by resolve_direction().
+///
+/// @return the committed (publishable) travel direction for this wheel.
+static int8_t DRIVEMOTOR_UpdateWheel(DRIVEMOTOR_dirfilter_t *f, int8_t reported, uint8_t speed,
+                                     uint16_t val, uint16_t *prev, uint32_t *ticks)
+{
+    int32_t l_s32Delta = (int32_t)val - (int32_t)*prev;
+    if (reported != 0)
+    {
+        if (l_s32Delta >= 0)
+        {
+            *ticks += (uint32_t)l_s32Delta;                       /* progress within a segment */
+        }
+        else if ((uint32_t)val <= DRIVEMOTOR_MAX_TICKS_PER_FRAME)
+        {
+            *ticks += (uint32_t)val;                              /* reset: new-segment progress so far */
+        }
+        /* else: implausibly large reset remainder => glitch, drop it */
+    }
+    *prev = val;
+    return resolve_direction(f, reported, speed, l_s32Delta < 0);
+}
+
 /// @brief Decode received drive motor messages
 /// @param
 void DRIVEMOTOR_App_Rx(void)
@@ -407,33 +506,16 @@ void DRIVEMOTOR_App_Rx(void)
         left_power = drivemotor_psReceivedData.u8_left_power;
         right_power = drivemotor_psReceivedData.u8_right_power;
 
-        /*
-          Encoder value can reset to zero twice when changing direction
-          2nd reset occurs when the speed changes from zero to non-zero
-          something the ticks are holded until the next commands
-        */
+        int8_t l_s8EffLeftDir = DRIVEMOTOR_UpdateWheel(&left_dir_filter, left_direction,
+                                                       drivemotor_psReceivedData.u8_left_speed,
+                                                       left_encoder_val, &prev_left_encoder_val, &left_encoder_ticks);
+        int8_t l_s8EffRightDir = DRIVEMOTOR_UpdateWheel(&right_dir_filter, right_direction,
+                                                        drivemotor_psReceivedData.u8_right_speed,
+                                                        right_encoder_val, &prev_right_encoder_val, &right_encoder_ticks);
+        left_wheel_speed_val = l_s8EffLeftDir * drivemotor_psReceivedData.u8_left_speed;
+        right_wheel_speed_val = l_s8EffRightDir * drivemotor_psReceivedData.u8_right_speed;
 
-        left_wheel_speed_val = left_direction * drivemotor_psReceivedData.u8_left_speed;
-        if (left_direction == 0 || (left_direction != prev_left_direction) || (prev_left_wheel_speed_val == 0 && left_wheel_speed_val != 0))
-        {
-            prev_left_encoder_val = 0;
-        }
-        left_encoder_ticks += abs(left_direction * (left_encoder_val - prev_left_encoder_val));
-        prev_left_encoder_val = left_encoder_val;
-        prev_left_wheel_speed_val = left_wheel_speed_val;
-        prev_left_direction = left_direction;
-
-        right_wheel_speed_val = right_direction * drivemotor_psReceivedData.u8_right_speed;
-        if (right_direction == 0 || (right_direction != prev_right_direction) || (prev_right_wheel_speed_val == 0 && right_wheel_speed_val != 0))
-        {
-            prev_right_encoder_val = 0;
-        }
-        right_encoder_ticks += abs(right_direction * (right_encoder_val - prev_right_encoder_val));
-        prev_right_encoder_val = right_encoder_val;
-        prev_right_wheel_speed_val = right_wheel_speed_val;
-        prev_right_direction = right_direction;
-
-        wheelTicks_handler(left_direction, right_direction, left_encoder_ticks, right_encoder_ticks, left_wheel_speed_val, right_wheel_speed_val);
+        wheelTicks_handler(l_s8EffLeftDir, l_s8EffRightDir, left_encoder_ticks, right_encoder_ticks, left_wheel_speed_val, right_wheel_speed_val);
 
         drivemotors_eRxFlag = RX_WAIT; // ready for next message
     }
