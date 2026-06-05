@@ -142,7 +142,13 @@ void DRIVEMOTOR_Init(void)
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
     HAL_GPIO_Init(PAC5210RESET_GPIO_PORT, &GPIO_InitStruct);
+#ifdef BLADE_REVERSE_SELFTEST
+    /* SAFETY: keep the drive controller HELD IN RESET for the bench blade
+     * test so the wheels can never be driven, no matter what is commanded. */
+    HAL_GPIO_WritePin(PAC5210RESET_GPIO_PORT, PAC5210RESET_PIN, 1);
+#else
     HAL_GPIO_WritePin(PAC5210RESET_GPIO_PORT, PAC5210RESET_PIN, 0); // take Drive Motor PAC out of reset if LOW
+#endif
 
     // PD7 (->PAC5210 PC4), PD8 (->PAC5210 PC3)
     __HAL_RCC_GPIOD_CLK_ENABLE();
@@ -528,6 +534,11 @@ void DRIVEMOTOR_App_Rx(void)
 /// @param right_dir  left motor direction bit
 void DRIVEMOTOR_SetSpeed(uint8_t left_speed, uint8_t right_speed, uint8_t left_dir, uint8_t right_dir)
 {
+#ifdef BLADE_REVERSE_SELFTEST
+    /* SAFETY: never command wheel motion during the bench blade test. */
+    left_speed = 0;
+    right_speed = 0;
+#endif
     left_speed_req = left_speed;
     right_speed_req = right_speed;
     if(left_speed_req == 0 && right_speed_req ==  0)

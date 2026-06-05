@@ -98,6 +98,67 @@ int debug_assert(int condition, const char *msg)
 }
 #endif
 
+#ifdef BLADE_REVERSE_SELFTEST
+/* ---------------------------------------------------------------------------
+ * Blade reverse bench self-test.
+ *
+ * Auto-cycles the blade  OFF -> FORWARD -> OFF -> REVERSE  and records the
+ * blade controller's response into g_blade_test so the reverse fix can be
+ * verified on the bench WITHOUT a ROS host. Read it over SWD, e.g.:
+ *     mdw &g_blade_test 11
+ * Drive motors are hard-disabled (PAC5210 held in reset, see drivemotor.c),
+ * so the WHEELS CANNOT MOVE during this test.
+ * ------------------------------------------------------------------------- */
+typedef struct {
+    uint32_t magic;      /* 0xB1ADE7E5 - marker so the SWD reader finds it    */
+    uint32_t heartbeat;  /* ++ every 100ms blade cycle (liveness)            */
+    uint32_t phase;      /* 0=OFF 1=FORWARD 2=OFF 3=REVERSE                   */
+    uint32_t on_off;     /* command issued this cycle                        */
+    uint32_t direction;  /* command issued this cycle (1 = reverse)          */
+    uint32_t cmd_byte5;  /* request byte[5] commanded (0x00/0x80/0xC0)       */
+    uint32_t activated;  /* BLADEMOTOR_bActivated - controller reports ON    */
+    uint32_t rpm;        /* BLADEMOTOR_u16RPM   (controller-reported)        */
+    uint32_t power;      /* BLADEMOTOR_u16Power (controller-reported)        */
+    uint32_t errcount;   /* BLADEMOTOR_u32Error (++ when controller errors)  */
+    uint32_t phase_ms;   /* ms elapsed in the current phase                  */
+} blade_test_t;
+
+volatile blade_test_t g_blade_test = { 0xB1ADE7E5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+static void blade_selftest_step(void)
+{
+    static const uint32_t dur[4] = { 3000u, 5000u, 3000u, 5000u };
+    static uint32_t phase = 0;
+    static uint32_t phase_start = 0;
+    uint32_t now = HAL_GetTick();
+    uint32_t elapsed;
+
+    if (phase_start == 0) phase_start = now;
+    elapsed = now - phase_start;
+    if (elapsed >= dur[phase])
+    {
+        phase = (phase + 1u) & 3u;
+        phase_start = now;
+        elapsed = 0;
+    }
+
+    uint8_t on_off    = (phase == 1u || phase == 3u) ? 1u : 0u;
+    uint8_t direction = (phase == 3u) ? 1u : 0u;   /* phase 3 = REVERSE */
+    BLADEMOTOR_Set(on_off, direction);
+
+    g_blade_test.heartbeat++;
+    g_blade_test.phase     = phase;
+    g_blade_test.on_off    = on_off;
+    g_blade_test.direction = direction;
+    g_blade_test.cmd_byte5 = on_off ? (direction ? 0xC0u : 0x80u) : 0x00u;
+    g_blade_test.activated = BLADEMOTOR_bActivated ? 1u : 0u;
+    g_blade_test.rpm       = BLADEMOTOR_u16RPM;
+    g_blade_test.power     = BLADEMOTOR_u16Power;
+    g_blade_test.errcount  = BLADEMOTOR_u32Error;
+    g_blade_test.phase_ms  = elapsed;
+}
+#endif /* BLADE_REVERSE_SELFTEST */
+
 int main(void)
 {
 
@@ -263,6 +324,10 @@ int main(void)
 
     if (NBT_handler(&main_blademotor_nbt))
     {
+#ifdef BLADE_REVERSE_SELFTEST
+      /* override any ROS/idle blade command right before the frame is sent */
+      blade_selftest_step();
+#endif
       BLADEMOTOR_App();
 
 #ifdef OPTION_PERIMETER
